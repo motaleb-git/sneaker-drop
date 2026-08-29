@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sneaker
+          POSTGRES_PASSWORD: sneaker
+          POSTGRES_DB: sneaker_drop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://sneaker:sneaker@localhost:5432/sneaker_drop
+      JWT_SECRET: ci-test-secret-not-for-production-use-32
+      SYNC_SCHEMA: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      - name: Server tests and build
+        working-directory: server
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: Client typecheck
+        working-directory: client
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm test

@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: sneaker-drop-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: SYNC_SCHEMA
+        value: false
+      - key: START_EXPIRY_WORKER
+        value: true
+      - key: SWAGGER_ENABLED
+        value: false
+      - key: RESERVATION_TTL_SECONDS
+        value: 60
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_ORIGIN
+        sync: false
