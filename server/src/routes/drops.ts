@@ -3,11 +3,8 @@ import { env } from "../config/env";
 import { asyncHandler, requireAdmin, requireAuth } from "../middleware/auth";
 import { mutationLimiter, readLimiter } from "../middleware/rateLimit";
 import { validateBody, validateUuidParam } from "../middleware/validate";
-import {
-  createDrop,
-  createDropSchema,
-  listDrops,
-} from "../services/dropService";
+import { createDropSchema } from "../schemas";
+import { createDrop, listDrops } from "../services/dropService";
 import { reserveDrop } from "../services/reservationService";
 
 export const dropsRouter = Router();

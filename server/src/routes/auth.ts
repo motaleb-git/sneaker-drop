@@ -1,24 +1,14 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
-import { z } from "zod";
 import { User } from "../models";
 import { AppError } from "../middleware/error";
 import { asyncHandler, requireAuth, signToken } from "../middleware/auth";
 import { authLimiter } from "../middleware/rateLimit";
 import { validateBody } from "../middleware/validate";
 import { clearAccessCookie, setAccessCookie } from "../lib/cookies";
+import { credentialsSchema, type CredentialsInput } from "../schemas";
 
 const dummyHash = bcrypt.hashSync("timing-dummy", 10);
-
-const credentialsSchema = z.object({
-  username: z
-    .string()
-    .trim()
-    .min(3)
-    .max(32)
-    .regex(/^[a-zA-Z0-9_]+$/, "Username may only contain letters, numbers, and underscores"),
-  password: z.string().min(8).max(72),
-});
 
 function publicUser(user: User) {
   return { id: user.id, username: user.username, role: user.role };
@@ -32,7 +22,7 @@ authRouter.post(
   "/register",
   validateBody(credentialsSchema),
   asyncHandler(async (req, res) => {
-    const { username, password } = req.body as z.infer<typeof credentialsSchema>;
+    const { username, password } = req.body as CredentialsInput;
     const existing = await User.findOne({ where: { username } });
     if (existing) {
       throw new AppError(409, "Username already taken", "USERNAME_TAKEN");
@@ -58,7 +48,7 @@ authRouter.post(
   "/login",
   validateBody(credentialsSchema),
   asyncHandler(async (req, res) => {
-    const { username, password } = req.body as z.infer<typeof credentialsSchema>;
+    const { username, password } = req.body as CredentialsInput;
     const user = await User.findOne({ where: { username } });
     const ok = await bcrypt.compare(password, user?.passwordHash ?? dummyHash);
     if (!user || !ok) {

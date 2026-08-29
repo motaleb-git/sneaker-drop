@@ -1,9 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import type { ZodSchema } from "zod";
+import { z, type ZodSchema } from "zod";
 import { AppError } from "./error";
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function validateBody(schema: ZodSchema) {
   return (req: Request, _res: Response, next: NextFunction): void => {
@@ -16,9 +13,23 @@ export function validateBody(schema: ZodSchema) {
   };
 }
 
+export function validateParams(schema: ZodSchema) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      req.params = schema.parse(req.params) as Request["params"];
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/** Validates a route param is a UUID; preserves legacy 400 "Invalid id" response shape. */
 export function validateUuidParam(name: string) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    if (!UUID_RE.test(req.params[name] ?? "")) {
+    const value = req.params[name] ?? "";
+    const result = z.string().uuid().safeParse(value);
+    if (!result.success) {
       next(new AppError(400, "Invalid id", "VALIDATION_ERROR"));
       return;
     }

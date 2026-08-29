@@ -1,20 +1,10 @@
 import { QueryTypes } from "sequelize";
-import { z } from "zod";
 import { sequelize } from "../db/sequelize";
 import { Drop } from "../models";
 import { AppError } from "../middleware/error";
+import type { CreateDropInput } from "../schemas";
 import { emitDropCreated } from "../sockets/hub";
 import { cachedListDrops, invalidateDropCache } from "./dropCache";
-
-export const createDropSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  priceCents: z.number().int().min(0),
-  totalStock: z.number().int().min(1).max(1_000_000),
-  startsAt: z.string().datetime().optional(),
-  endsAt: z.string().datetime().optional(),
-});
-
-export type CreateDropInput = z.infer<typeof createDropSchema>;
 
 export type RecentPurchaser = {
   username: string;
