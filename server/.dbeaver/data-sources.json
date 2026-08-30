@@ -1,0 +1,20 @@
+{
+  "folders": {},
+  "connections": {
+    "sneaker-drop-local": {
+      "provider": "postgresql",
+      "driver": "postgres-jdbc",
+      "name": "sneaker-drop",
+      "save-password": true,
+      "configuration": {
+        "host": "localhost",
+        "port": "5432",
+        "database": "sneaker_drop",
+        "url": "jdbc:postgresql://localhost:5432/sneaker_drop",
+        "configurationType": "MANUAL",
+        "user": "sneaker",
+        "password": "sneaker"
+      }
+    }
+  }
+}

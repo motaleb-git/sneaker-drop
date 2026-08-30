@@ -42,6 +42,8 @@ export function useSocket(enabled: boolean, onReconnect?: () => void): void {
         initialConnect = false;
         return;
       }
+      // Reset error flag so the user gets notified if the connection drops again
+      connectErrorShown = false;
       onReconnect?.();
     });
 

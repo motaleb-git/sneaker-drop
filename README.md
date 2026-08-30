@@ -42,6 +42,8 @@ GRANT ALL ON SCHEMA public TO sneaker;
 
 Connection string: `postgres://sneaker:sneaker@localhost:5432/sneaker_drop`
 
+**DBeaver:** use username `sneaker`, password `sneaker`, database `sneaker_drop` — not `postgres`. Or open `server/` as a DBeaver project (`.dbeaver/data-sources.json` is preconfigured).
+
 ### 2. Backend
 
 ```bash

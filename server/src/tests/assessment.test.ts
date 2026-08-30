@@ -28,10 +28,14 @@ function errCode(err: unknown): string {
 }
 
 let passwordHash = "";
+const testDropIds: string[] = [];
+const testUserIds: string[] = [];
 
 async function makeUser(prefix: string): Promise<User> {
   const username = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  return User.create({ username, passwordHash, role: "user" });
+  const user = await User.create({ username, passwordHash, role: "user" });
+  testUserIds.push(user.id);
+  return user;
 }
 
 async function makeDrop(stock: number, name = "Assessment"): Promise<Drop> {
@@ -43,6 +47,7 @@ async function makeDrop(stock: number, name = "Assessment"): Promise<Drop> {
     startsAt: new Date(Date.now() - 1000),
     endsAt: null,
   });
+  testDropIds.push(drop.id);
   invalidateDropCache();
   return drop;
 }
@@ -68,7 +73,39 @@ before(async () => {
 });
 
 after(async () => {
-  await sequelize.close();
+  // Clean up all test-created data so the dashboard stays tidy.
+  // All operations run in one transaction so the DEFERRABLE deferred stock
+  // invariant trigger only fires at commit, after all deletes are complete.
+  try {
+    if (testDropIds.length > 0 || testUserIds.length > 0) {
+      await sequelize.transaction(async (t) => {
+        if (testDropIds.length > 0) {
+          const dropPlaceholders = testDropIds.map((_, i) => `:id${i}`).join(", ");
+          const dropReplacements = Object.fromEntries(testDropIds.map((id, i) => [`id${i}`, id]));
+          // Reset stock so invariant holds when CASCADE removes child rows
+          await sequelize.query(
+            `UPDATE drops SET available_stock = total_stock WHERE id IN (${dropPlaceholders})`,
+            { replacements: dropReplacements, transaction: t }
+          );
+          // CASCADE on drops removes dependent reservations and purchases
+          await sequelize.query(
+            `DELETE FROM drops WHERE id IN (${dropPlaceholders})`,
+            { replacements: dropReplacements, transaction: t }
+          );
+        }
+        if (testUserIds.length > 0) {
+          const userPlaceholders = testUserIds.map((_, i) => `:uid${i}`).join(", ");
+          const userReplacements = Object.fromEntries(testUserIds.map((id, i) => [`uid${i}`, id]));
+          await sequelize.query(
+            `DELETE FROM users WHERE id IN (${userPlaceholders})`,
+            { replacements: userReplacements, transaction: t }
+          );
+        }
+      });
+    }
+  } finally {
+    await sequelize.close();
+  }
 });
 
 test("1. reserve decrements available stock", async () => {
@@ -336,6 +373,7 @@ test("14. purchase:created, reservation:expired, and drop:created emit after com
     priceCents: 500,
     totalStock: 3,
   });
+  testDropIds.push(created.id);
   const createdPayload = await createdEvent;
   assert.equal(createdPayload.id, created.id);
   assert.equal(createdPayload.totalStock, 3);
@@ -399,6 +437,7 @@ test("18. non-admin cannot create a drop over HTTP", async () => {
     .post("/api/auth/register")
     .send({ username, password: "password123" });
   assert.equal(registered.status, 201);
+  testUserIds.push(registered.body.user.id);
   const denied = await request(app)
     .post("/api/drops")
     .set("Authorization", `Bearer ${registered.body.token}`)
@@ -413,6 +452,7 @@ test("19. admin can create a drop over HTTP", async () => {
     passwordHash,
     role: "admin",
   });
+  testUserIds.push(admin.id);
   const token = signToken({
     id: admin.id,
     username: admin.username,
@@ -424,6 +464,7 @@ test("19. admin can create a drop over HTTP", async () => {
     .send({ name: `Http ${Date.now()}`, priceCents: 2500, totalStock: 4 });
   assert.equal(created.status, 201);
   assert.equal(created.body.drop.availableStock, 4);
+  testDropIds.push(created.body.drop.id);
 });
 
 test("20. unknown API route is 404 with code", async () => {
@@ -442,6 +483,8 @@ test("21. alice hold is not returned to bob; bob sees stock only", async () => {
     .send({ username: `bob_${suffix}`, password: "password123" });
   assert.equal(aliceRes.status, 201);
   assert.equal(bobRes.status, 201);
+  testUserIds.push(aliceRes.body.user.id);
+  testUserIds.push(bobRes.body.user.id);
 
   const aliceToken = aliceRes.body.token as string;
   const bobToken = bobRes.body.token as string;

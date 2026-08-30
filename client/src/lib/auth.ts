@@ -32,5 +32,4 @@ export function setSession(user: AuthUser, token?: string): void {
 export function clearSession(): void {
   memoryToken = null;
   localStorage.removeItem(USER_KEY);
-  localStorage.removeItem("sneaker_drop_token");
 }

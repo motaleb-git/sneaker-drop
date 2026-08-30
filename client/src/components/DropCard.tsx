@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { api, type Drop, type Reservation } from "../lib/api";
 import { getHoldSeconds } from "../lib/config";
@@ -30,12 +30,21 @@ export const DropCard = memo(function DropCard({ drop, reservation }: Props) {
   const addReservation = useDropsStore((s) => s.addReservation);
   const removeReservation = useDropsStore((s) => s.removeReservation);
   const updateStock = useDropsStore((s) => s.updateStock);
+  const addPurchaser = useDropsStore((s) => s.addPurchaser);
   const [reserving, setReserving] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
 
   const remaining = useCountdown(reservation?.expiresAt ?? null);
   const state = dropState(drop);
   const soldOut = drop.availableStock <= 0 && !reservation;
+
+  // When the hold countdown reaches zero, clean up the reservation client-side
+  // so the user can reserve again without waiting for the server expiry event.
+  useEffect(() => {
+    if (reservation && remaining <= 0) {
+      removeReservation(reservation.id);
+    }
+  }, [reservation, remaining, removeReservation]);
 
   async function onReserve(): Promise<void> {
     setReserving(true);
@@ -55,8 +64,13 @@ export const DropCard = memo(function DropCard({ drop, reservation }: Props) {
     if (!reservation) return;
     setPurchasing(true);
     try {
-      await api.purchase(reservation.id);
+      const result = await api.purchase(reservation.id);
       removeReservation(reservation.id);
+      // Stock was decremented at reserve time; the purchase converts the hold
+      // to a permanent sale so available stock doesn't change. Update the
+      // purchaser list optimistically so the card reflects the new buyer.
+      updateStock(drop.id, drop.availableStock);
+      addPurchaser(drop.id, result.username, result.createdAt);
       toast.success("Purchase complete");
     } catch (err) {
       notifyError(err, "Could not complete the purchase.");

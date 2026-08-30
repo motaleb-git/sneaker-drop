@@ -10,7 +10,13 @@ export function createSlidingWindow(limit: number, windowMs: number) {
       return false;
     }
     recent.push(now);
-    buckets.set(key, recent);
+    // Evict the key entirely when the bucket is empty to prevent memory leak
+    // on long-lived servers with high IP churn
+    if (recent.length === 0) {
+      buckets.delete(key);
+    } else {
+      buckets.set(key, recent);
+    }
     return true;
   };
 }

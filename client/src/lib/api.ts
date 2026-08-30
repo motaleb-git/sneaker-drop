@@ -111,7 +111,7 @@ export const api = {
       { method: "POST" }
     ),
   purchase: (reservationId: string) =>
-    request<{ purchaseId: string; dropId: string; createdAt: string }>(
+    request<{ purchaseId: string; dropId: string; username: string; createdAt: string }>(
       `/api/reservations/${reservationId}/purchase`,
       { method: "POST" }
     ),
