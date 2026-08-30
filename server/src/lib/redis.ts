@@ -11,6 +11,7 @@ export function getRedis(): Redis | null {
 export async function connectRedis(): Promise<void> {
   if (!env.REDIS_URL || client) return;
 
+  // lazyConnect: true means we control when the connection is established
   const redis = new Redis(env.REDIS_URL, {
     lazyConnect: true,
     maxRetriesPerRequest: 3,
@@ -32,8 +33,18 @@ export async function connectRedis(): Promise<void> {
 export async function getRedisSubscriber(): Promise<Redis | null> {
   if (!client) return null;
   if (subscriber) return subscriber;
-  subscriber = client.duplicate();
-  await subscriber.connect();
+
+  // duplicate() creates a new connection with the same config.
+  // With lazyConnect on the duplicate we explicitly connect before returning.
+  subscriber = client.duplicate({ lazyConnect: true });
+  try {
+    await subscriber.connect();
+  } catch (err) {
+    console.error("Redis subscriber connect failed", err);
+    subscriber.disconnect();
+    subscriber = null;
+    return null;
+  }
   return subscriber;
 }
 
