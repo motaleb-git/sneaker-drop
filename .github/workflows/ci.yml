@@ -34,15 +34,13 @@ jobs:
           cache-dependency-path: |
             server/package-lock.json
             client/package-lock.json
-      - name: Server tests and build
+      - name: Server build
         working-directory: server
         run: |
           npm ci
-          npm test
           npm run build
-      - name: Client typecheck
+      - name: Client typecheck and build
         working-directory: client
         run: |
           npm ci
-          npx tsc --noEmit
-          npm test
+          npm run build

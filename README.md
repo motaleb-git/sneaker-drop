@@ -1,38 +1,48 @@
 # Limited Edition Sneaker Drop
 
-Repository: [github.com/motaleb-git/sneaker-drop](https://github.com/motaleb-git/sneaker-drop)
+A real-time sneaker drop platform where inventory, holds, and purchases stay correct under load. Users browse live stock, reserve a unit for 60 seconds, and complete the purchase before the hold expires. Every connected client sees stock updates instantly.
 
-Real-time inventory for a high-demand merch drop. Users see live stock, reserve a unit for 60 seconds, then complete purchase. Overselling is blocked at the database, and expired holds automatically return stock to every connected client.
+**Repository:** [github.com/motaleb-git/sneaker-drop](https://github.com/motaleb-git/sneaker-drop)
 
-## Stack
+---
 
-- **Frontend:** React + Vite + TypeScript + Tailwind + Zustand + Socket.io-client
-- **Backend:** Node.js + Express + TypeScript + Socket.io
-- **ORM:** Sequelize
-- **Database:** PostgreSQL 16
+## What this project demonstrates
 
-This repo is **two standalone projects**. Each has its own `package.json` and `node_modules`.
+- **No overselling** — stock changes are atomic in PostgreSQL, not read-modify-write in application code
+- **Reliable holds** — expiry time is set in the database; a background worker returns stock when holds expire
+- **Live UI** — Socket.io pushes stock, purchase, and expiry events to all open dashboards
+- **Production-minded API** — Zod validation, tiered rate limits, structured errors, OpenAPI docs, versioned migrations
 
-```
-sneaker-drop/
-  server/    Node + Express + Socket.io + Sequelize
-  client/    React + Vite
-```
+The hard constraint is inventory correctness. Redis (optional) is used only for caching and cross-process events — never for stock counts.
 
-## How to run locally
+---
 
-### 1. Start Postgres
+## Tech stack
 
-From `server/`:
+| Layer | Choices |
+|-------|---------|
+| Frontend | React 18, Vite, TypeScript, Tailwind CSS, Zustand, Socket.io-client |
+| Backend | Node.js 20+, Express, TypeScript, Socket.io, Sequelize |
+| Database | PostgreSQL 16 |
 
-**Option A — Docker**
+The repo is two independent apps — `server/` and `client/` — each with its own `package.json` and dependencies.
+
+---
+
+## Quick start
+
+You need **Node.js 20+** and **PostgreSQL 16** (or Docker).
+
+### 1. Database
+
+**Docker (recommended)**
 
 ```bash
 cd server
 docker compose up -d
 ```
 
-**Option B — local PostgreSQL**
+**Manual setup**
 
 ```sql
 CREATE USER sneaker WITH PASSWORD 'sneaker';
@@ -40,50 +50,39 @@ CREATE DATABASE sneaker_drop OWNER sneaker;
 GRANT ALL ON SCHEMA public TO sneaker;
 ```
 
-Connection string: `postgres://sneaker:sneaker@localhost:5432/sneaker_drop`
+Connection string:
 
-**DBeaver:** use username `sneaker`, password `sneaker`, database `sneaker_drop` — not `postgres`. Or open `server/` as a DBeaver project (`.dbeaver/data-sources.json` is preconfigured).
+```
+postgres://sneaker:sneaker@localhost:5432/sneaker_drop
+```
 
-### 2. Backend
+> **DBeaver tip:** connect as user `sneaker`, database `sneaker_drop` — not the default `postgres` user. A preconfigured datasource lives in `server/.dbeaver/data-sources.json`.
+
+### 2. API server
 
 ```bash
 cd server
 cp .env.example .env
 npm install
-npm run seed
+npm run seed    # creates sample drops + demo accounts
 npm run dev
 ```
 
-API + WebSocket: [http://localhost:4000](http://localhost:4000)  
-Swagger UI: [http://localhost:4000/api/docs](http://localhost:4000/api/docs)  
-OpenAPI JSON: [http://localhost:4000/api/docs.json](http://localhost:4000/api/docs.json)  
-Health check: `GET /api/health`
+| Endpoint | URL |
+|----------|-----|
+| API + WebSocket | http://localhost:4000 |
+| Swagger UI | http://localhost:4000/api/docs |
+| OpenAPI JSON | http://localhost:4000/api/docs.json |
+| Health check | `GET /api/health` |
 
-In Swagger: **Authorize** → paste the JWT from `/api/auth/login` (seed: `alice` / `password123`).
+**Demo accounts** (created by `npm run seed`):
 
-Change `JWT_SECRET` before any public deploy.
+| Username | Password | Role |
+|----------|----------|------|
+| `alice` | `password123` | admin — can create drops |
+| `bob` | `password123` | user |
 
-`npm test` runs 21 scenarios, including **alice’s hold is invisible to bob** (stock still updates). Client: `cd client && npm test` checks the UI filter. GitHub Actions [CI](.github/workflows/ci.yml) runs both.
-
-```bash
-cd server
-npm test
-```
-
-CI (on every push): server tests + `tsc` build, plus client `tsc`.
-
-Versioned SQL migrations in [`server/src/db/migrations`](server/src/db/migrations) run on boot (`schema_migrations`). `SYNC_SCHEMA=true` is an emergency Sequelize sync only — not the default. Reference copy: [`server/src/db/schema.sql`](server/src/db/schema.sql). Applied objects include:
-
-- unique partial index: one **pending** reservation per user per drop
-- expiry index on `reservations(expires_at) WHERE status = 'pending'`
-- activity-feed index on `purchases(drop_id, created_at DESC)`
-
-Seed accounts:
-
-| Username | Password      |
-|----------|---------------|
-| `alice` (admin) | `password123` |
-| `bob` (user)    | `password123` |
+In Swagger, click **Authorize** and paste the JWT returned from `POST /api/auth/login`.
 
 ### 3. Frontend
 
@@ -95,45 +94,56 @@ npm install
 npm run dev
 ```
 
-UI: [http://localhost:5173](http://localhost:5173)
+Open http://localhost:5173. The Vite dev server proxies `/api` and `/socket.io` to port 4000 — no client `.env` needed locally.
 
-Optional: copy [`client/.env.example`](client/.env.example) to `client/.env` and set `VITE_API_URL` / `VITE_WS_URL` for production. Locally the Vite proxy talks to `localhost:4000`.
+---
 
-## SQL schema
+## How it works
 
-See [`server/src/db/schema.sql`](server/src/db/schema.sql). Tables:
+### Reserve → hold → purchase
 
-- `users` — username + password hash
-- `drops` — merch drop, `price_cents`, `total_stock`, `available_stock`, `starts_at`, `ends_at`
-- `reservations` — 60s hold (`pending` / `purchased` / `expired`)
-- `purchases` — permanent sale, unique `reservation_id`
-
-Stock invariant:
-
-`available_stock + pending_reservations + purchases = total_stock`
-
-## Architecture: 60-second expiration
-
-`expires_at` is set in Postgres as `NOW() + interval`, not from the Node clock. Purchase expiry also uses `expires_at <= NOW()`. A 1-second worker expires due rows with:
-
-```sql
-SELECT id FROM reservations
-WHERE status = 'pending' AND expires_at <= NOW()
-FOR UPDATE SKIP LOCKED
+```
+User clicks "Reserve"
+        │
+        ▼
+┌─────────────────────────────────────┐
+│  Atomic UPDATE on drops row         │
+│  (decrement stock if available)     │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│  INSERT reservation (pending, 60s)  │
+│  Same transaction — rolls back if   │
+│  user already has a pending hold    │
+└─────────────────────────────────────┘
+        │
+        ▼
+  Socket: stock:updated
+        │
+        ▼
+User clicks "Purchase" within 60s
+        │
+        ▼
+  Reservation → purchased, stock stays decremented
+  Socket: purchase:created
 ```
 
-then increments `available_stock` in the same statement and emits `reservation:expired` + `stock:updated` over Socket.io. The API process starts the worker by default (`START_EXPIRY_WORKER=true`). For a split deploy: `START_EXPIRY_WORKER=false` on the API and `npm run worker` in a second process.
+If the user does nothing, a worker expires the hold, restores stock, and broadcasts `reservation:expired` + `stock:updated`.
 
-Why this approach:
+### Why expiry lives in Postgres
 
-- Time lives in the database, so a server restart does not lose holds or leak stock
-- `SKIP LOCKED` is safe if you later run more than one worker
-- Lazy-only expiry would leave stock wrong until the next click
-- Per-reservation `setTimeout` dies on restart and does not scale
+`expires_at` is written as `NOW() + interval` inside the database — not calculated from the Node.js clock. That means:
 
-## Concurrency: no overselling
+- A server restart does not lose active holds or leak stock
+- Purchase rejection uses the same `expires_at <= NOW()` check
+- `FOR UPDATE SKIP LOCKED` makes the worker safe to run in multiple processes later
 
-Reserve never does `SELECT` then `UPDATE`. It uses one atomic statement inside a transaction:
+The worker runs every second by default inside the API process (`START_EXPIRY_WORKER=true`). For split deployments, disable it on the API and run `npm run worker` separately.
+
+### Why overselling is impossible
+
+Reserve never does a separate read and write. One statement inside a transaction handles it:
 
 ```sql
 UPDATE drops
@@ -145,35 +155,35 @@ WHERE id = :dropId
 RETURNING *;
 ```
 
-If `RETURNING` is empty, the API responds **409** (`SOLD_OUT`, `NOT_LIVE`, or `ENDED`). A hundred concurrent clicks on the last unit serialize on the Postgres row lock; only one decrement succeeds. The reservation insert is in the same transaction, so a unique-constraint collision (same user, same drop) rolls the stock decrement back.
+If `RETURNING` is empty, the API responds **409** (`SOLD_OUT`, `NOT_LIVE`, or `ENDED`). A hundred concurrent clicks on the last unit serialize on the Postgres row lock — only one succeeds. The reservation insert is in the same transaction, so a duplicate hold for the same user rolls the decrement back.
 
-Socket events are emitted **after commit**.
+Socket events are emitted **after commit**, so clients never see optimistic stock that was rolled back.
 
-Verify last-item safety against your database:
+### Stock invariant
 
-```bash
-cd server
-npm run test:concurrency
-npm test
+A deferred trigger enforces this at the database level:
+
+```
+available_stock + pending_reservations + purchases = total_stock
 ```
 
-Expected concurrency check: `wins=1 losses=7 stock=0`. Test 13 also runs 40 users against 5 units (`wins=5 stock=0`).
+Reference schema: [`server/src/db/schema.sql`](server/src/db/schema.sql). Versioned migrations in [`server/src/db/migrations/`](server/src/db/migrations/) run automatically on boot.
 
-## API
+---
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| `POST` | `/api/auth/register` | no | Create user + JWT |
-| `POST` | `/api/auth/login` | no | JWT |
-| `GET` | `/api/drops` | no | Drops + nested top 3 purchasers |
-| `POST` | `/api/drops` | yes | Initialize a merch drop |
-| `POST` | `/api/drops/:id/reserve` | yes | Atomic 60s hold |
-| `POST` | `/api/reservations/:id/purchase` | yes | Complete purchase (owner + still pending) |
-| `GET` | `/api/me/reservations` | yes | Current user's pending holds |
+## API reference
 
-`GET /api/drops` uses a SQL `LATERAL` subquery so each drop includes the 3 latest purchasers (`username`, `createdAt`). Sequelize `include` + `limit` is not used because it does not limit per parent row reliably.
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/auth/register` | — | Create account, returns JWT |
+| `POST` | `/api/auth/login` | — | Login, returns JWT |
+| `GET` | `/api/drops` | — | List drops with top 3 recent buyers per drop |
+| `POST` | `/api/drops` | admin | Create a new drop |
+| `POST` | `/api/drops/:id/reserve` | user | Reserve one unit (60s hold) |
+| `POST` | `/api/reservations/:id/purchase` | user | Complete purchase (owner, pending, not expired) |
+| `GET` | `/api/me/reservations` | user | Current user's active holds |
 
-Create-drop body:
+**Create drop** (admin only):
 
 ```json
 {
@@ -185,55 +195,150 @@ Create-drop body:
 }
 ```
 
-`availableStock` is initialized to `totalStock`. Reserve/purchase are rejected until `startsAt`.
+`availableStock` starts equal to `totalStock`. Reserve and purchase are rejected until `startsAt`.
+
+`GET /api/drops` uses a SQL `LATERAL` join for the activity feed — Sequelize `include` + `limit` does not reliably limit per parent row.
+
+Request bodies are validated with **Zod** (`server/src/schemas/`). Invalid input returns structured 400 responses.
+
+---
 
 ## WebSocket events
 
-Connect to the API origin with `{ auth: { token } }`.
+Connect to the API origin with `{ auth: { token } }` (JWT from login).
 
-- `stock:updated` → `{ dropId, availableStock }`
-- `purchase:created` → `{ dropId, username, createdAt }`
-- `reservation:expired` → `{ reservationId, dropId, availableStock }`
-- `drop:created` → full drop DTO (other open dashboards add the card)
+| Event | Payload | When |
+|-------|---------|------|
+| `stock:updated` | `{ dropId, availableStock }` | After reserve, expiry, or any stock change |
+| `purchase:created` | `{ dropId, username, createdAt }` | After a successful purchase |
+| `reservation:expired` | `{ reservationId, dropId, availableStock }` | Hold timed out |
+| `drop:created` | full drop object | Admin created a new drop |
 
-Stock correctness does not depend on Redis or in-memory locks. One API process is enough for the live UI. If you later run more than one Node process, clients on other instances may miss Socket events — overselling is still impossible because every reserve/purchase/expiry goes through Postgres.
+Stock correctness does not depend on sockets. If a client misses an event, the next `GET /api/drops` or page refresh reconciles state from Postgres.
+
+---
 
 ## Environment variables
 
-| Name | Where | Purpose |
-|------|--------|---------|
-| `DATABASE_URL` | server | Postgres (use Neon **pooled** host in production) |
-| `JWT_SECRET` | server | Sign JWTs |
-| `PORT` | server | Default `4000` |
-| `CLIENT_ORIGIN` | server | CORS allowlist, comma-separated |
-| `RESERVATION_TTL_SECONDS` | server | Default `60` |
-| `SYNC_SCHEMA` | server | Emergency `sequelize.sync()` only. Default `false` — migrations create tables |
-| `SWAGGER_ENABLED` | server | Local default `true`. Off in production unless you set `true` |
-| `START_EXPIRY_WORKER` | server | Default `true`. Set `false` if you run `npm run worker` separately |
-| `COOKIE_SECURE` / `COOKIE_SAMESITE` | server | HttpOnly session cookie. Cross-site: `none` + `secure` |
-| `VITE_API_URL` | client | API origin (empty in local Vite proxy) |
-| `VITE_WS_URL` | client | Socket.io origin (local default `http://localhost:4000`) |
+### Server (`server/.env`)
 
-Do not commit `.env`.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATABASE_URL` | local connection string | PostgreSQL connection |
+| `JWT_SECRET` | dev fallback | JWT signing — **must be 32+ chars in production** |
+| `PORT` | `4000` | HTTP listen port |
+| `CLIENT_ORIGIN` | `http://localhost:5173` | CORS allowlist (comma-separated) |
+| `RESERVATION_TTL_SECONDS` | `60` | Hold duration |
+| `START_EXPIRY_WORKER` | `true` | Run expiry loop in API process |
+| `SWAGGER_ENABLED` | `true` locally | OpenAPI UI |
+| `SYNC_SCHEMA` | `false` | Emergency Sequelize sync — migrations are the default |
+| `COOKIE_SECURE` / `COOKIE_SAMESITE` | auto | HttpOnly session cookie settings |
+| `REDIS_URL` | — | Optional — live events + drop cache across processes |
+| `RATE_LIMIT_*` | see `.env.example` | Per-tier rate limits (auth, read, mutation, reserve) |
 
-## Production hosting (bonus)
+Do not commit `.env` files.
 
-Socket.io and the 1s expiry worker need a **long-lived Node process**. Vercel serverless cannot hold WebSocket connections or run that loop reliably.
+### Client (`client/.env`)
 
-Recommended:
+Only needed for production builds:
 
-1. **Neon** — Postgres (`DATABASE_URL` pooled)
-2. **Render** — Blueprint [`render.yaml`](render.yaml) or Docker [`server/Dockerfile`](server/Dockerfile)
-3. **Vercel** — the Vite React app (`client/vercel.json` SPA rewrite). Set `VITE_API_URL` / `VITE_WS_URL` to the Render origin, and `CLIENT_ORIGIN` on the API to the Vercel origin.
+| Variable | Purpose |
+|----------|---------|
+| `VITE_API_URL` | Backend origin (no trailing `/api`) |
+| `VITE_WS_URL` | Socket.io origin |
 
-Migrations create tables on first boot. Set `JWT_SECRET` to at least 32 characters. `alice` is the only seed admin (`POST /api/drops`).
+Leave both empty for local development — Vite proxies to `localhost:4000`.
 
-## Scale notes (not required for the demo)
+---
 
-Correctness is Postgres: atomic `UPDATE`, the reservation insert in the same transaction, purchase `FOR UPDATE`, expiry `FOR UPDATE SKIP LOCKED`, and a deferred trigger that `available + pending + purchased = total`. That holds with one Node process or many.
+## Deployment
 
-Later, if you need it:
+Socket.io and the expiry worker need a **long-lived Node process**. Serverless platforms (e.g. Vercel functions) cannot host WebSockets or background loops reliably.
 
-- A Socket.io pub/sub adapter so live events reach every API instance (UI only — not inventory)
-- Neon pooler / PgBouncer (use the pooled URL now)
-- Idempotency-Key on purchase
+**Recommended layout:**
+
+| Service | Role |
+|---------|------|
+| **Neon** (or any Postgres) | Database — use the **pooled** connection URL |
+| **Render** | API + worker — see [`render.yaml`](render.yaml) or [`server/Dockerfile`](server/Dockerfile) |
+| **Vercel** | Static React app — see [`client/vercel.json`](client/vercel.json) |
+
+**Checklist:**
+
+1. Set `DATABASE_URL`, `JWT_SECRET` (32+ chars), and `CLIENT_ORIGIN` on Render
+2. Set `VITE_API_URL` and `VITE_WS_URL` on Vercel to the Render API URL
+3. Redeploy Vercel after changing env vars — Vite embeds them at build time
+4. Run `npm run seed` once against the production database (or create drops via Swagger as `alice`)
+5. Confirm `GET /api/health` returns `{ "ok": true, "db": "up" }`
+
+Migrations create tables on first boot. Swagger is off in production by default.
+
+---
+
+## Project layout
+
+```
+sneaker-drop/
+├── client/                 React SPA
+│   ├── src/
+│   │   ├── components/     DropCard, CreateDropForm, …
+│   │   ├── hooks/          useSocket, useCountdown, useHoldExpiry
+│   │   ├── lib/            API client, auth, realtime helpers
+│   │   ├── pages/          Login, Dashboard
+│   │   └── store/          Zustand drop state
+│   └── vite.config.ts      Dev proxy to API
+│
+├── server/                 Express API + Socket.io
+│   ├── src/
+│   │   ├── db/             Migrations, seed, schema reference
+│   │   ├── middleware/     Auth, validation, rate limits, errors
+│   │   ├── routes/         REST endpoints
+│   │   ├── services/       Business logic, expiry worker, cache
+│   │   ├── sockets/        Real-time event hub
+│   │   └── schemas/        Zod request validation
+│   └── docker-compose.yml  Local Postgres
+│
+├── .github/workflows/ci.yml
+└── render.yaml             Render blueprint
+```
+
+---
+
+## CI
+
+GitHub Actions runs on every push and pull request:
+
+- **Server** — `npm ci` + `tsc` build against Postgres 16
+- **Client** — `npm ci` + typecheck + Vite production build
+
+See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+---
+
+## Manual verification scripts
+
+These are developer utilities, not automated tests:
+
+```bash
+# Simulate concurrent reserve attempts on the last unit
+cd server && npm run test:concurrency
+
+# Benchmark drop listing query
+cd server && npm run test:bench
+```
+
+Expected concurrency output for a single-unit drop: `wins=1 losses=7 stock=0`.
+
+---
+
+## Scaling notes
+
+The current design is correct with one API process or many — every reserve, purchase, and expiry goes through Postgres row locks and transactions.
+
+If you add more API instances later:
+
+- **Inventory** — already safe; no changes needed
+- **Live events** — add a Socket.io Redis adapter (or use the optional `REDIS_URL` pub/sub) so all instances broadcast to all clients
+- **Database** — use a connection pooler (Neon pooler, PgBouncer) under load
+
+Optional improvements not implemented here: idempotency keys on purchase, read replicas for listing, dedicated worker fleet for expiry.

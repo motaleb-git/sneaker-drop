@@ -71,7 +71,7 @@ export function Login({ onAuthed }: Props) {
         <h1 className="mt-2 text-2xl font-bold text-white">Sneaker Drop</h1>
         <p className="mt-2 text-sm text-slate-400">
           Sign in to reserve stock. Seed: <code>alice</code> (admin, can create
-          drops) / <code>bob</code> (user), password <code>password123</code>.
+          drops) / <code>bob</code> (user), password <code>password123</code>
         </p>
         <form onSubmit={(e) => void onSubmit(e)} className="mt-6 space-y-3" noValidate>
           <Field label="Username" error={errors.username}>
