@@ -5,6 +5,8 @@ import { clientKey } from "../lib/clientKey";
 
 type LimitMessage = { error: string; code: "RATE_LIMITED" };
 
+const ipKey = (req: Request): string => `ip:${req.ip ?? "unknown"}`;
+
 function rateLimitHandler(
   req: Request,
   res: Response,
@@ -32,14 +34,14 @@ function createLimiter(options: Partial<Options> & Pick<Options, "max" | "messag
 /** Login / register — IP keyed to slow credential stuffing. */
 export const authLimiter = createLimiter({
   max: env.RATE_LIMIT_AUTH_MAX,
-  keyGenerator: (req) => `ip:${req.ip ?? "unknown"}`,
+  keyGenerator: ipKey,
   message: { error: "Too many auth attempts", code: "RATE_LIMITED" },
 });
 
 /** Public reads — IP keyed. */
 export const readLimiter = createLimiter({
   max: env.RATE_LIMIT_READ_MAX,
-  keyGenerator: (req) => `ip:${req.ip ?? "unknown"}`,
+  keyGenerator: ipKey,
   message: { error: "Too many requests", code: "RATE_LIMITED" },
 });
 

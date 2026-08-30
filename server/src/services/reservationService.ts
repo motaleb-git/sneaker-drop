@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { DatabaseError, QueryTypes, UniqueConstraintError } from "sequelize";
+import { DatabaseError, Op, QueryTypes, UniqueConstraintError } from "sequelize";
 import { env } from "../config/env";
 import { sequelize } from "../db/sequelize";
 import { AppError } from "../middleware/error";
@@ -44,7 +44,11 @@ export async function listMyReservations(
   userId: string
 ): Promise<ReservationDto[]> {
   const rows = await Reservation.findAll({
-    where: { userId, status: "pending" },
+    where: {
+      userId,
+      status: "pending",
+      expiresAt: { [Op.gt]: sequelize.literal("NOW()") },
+    },
     order: [["createdAt", "DESC"]],
   });
   return rows.map(toReservationDto);

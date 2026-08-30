@@ -4,12 +4,24 @@ export function useCountdown(expiresAt: string | null): number {
   const [remaining, setRemaining] = useState(() => secondsLeft(expiresAt));
 
   useEffect(() => {
-    setRemaining(secondsLeft(expiresAt));
-    if (!expiresAt) return;
-    const id = window.setInterval(() => {
-      setRemaining(secondsLeft(expiresAt));
-    }, 250);
-    return () => window.clearInterval(id);
+    if (!expiresAt) {
+      setRemaining(0);
+      return;
+    }
+
+    const tick = (): void => setRemaining(secondsLeft(expiresAt));
+    tick();
+
+    const id = window.setInterval(tick, 1000);
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [expiresAt]);
 
   return remaining;
@@ -17,5 +29,8 @@ export function useCountdown(expiresAt: string | null): number {
 
 function secondsLeft(expiresAt: string | null): number {
   if (!expiresAt) return 0;
-  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  const diffMs = new Date(expiresAt).getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  // Floor + 1: 59.2s remaining displays as 60 (standard countdown UX).
+  return Math.floor(diffMs / 1000) + 1;
 }
