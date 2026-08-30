@@ -1,4 +1,5 @@
 import type { Server } from "socket.io";
+import { publishRealtime } from "../lib/realtimeBus";
 import type {
   ClientToServerEvents,
   DropCreated,
@@ -20,22 +21,24 @@ export function getIo(): Server<ClientToServerEvents, ServerToClientEvents> {
   return io;
 }
 
-export function emitStockUpdated(dropId: string, availableStock: number): void {
+function fanout(event: keyof ServerToClientEvents, payload: unknown): void {
+  if (publishRealtime(event, payload)) return;
   if (!io) return;
-  io.to("drops").emit("stock:updated", { dropId, availableStock });
+  (io.to("drops").emit as (e: keyof ServerToClientEvents, p: unknown) => void)(event, payload);
+}
+
+export function emitStockUpdated(dropId: string, availableStock: number): void {
+  fanout("stock:updated", { dropId, availableStock });
 }
 
 export function emitDropCreated(payload: DropCreated): void {
-  if (!io) return;
-  io.to("drops").emit("drop:created", payload);
+  fanout("drop:created", payload);
 }
 
 export function emitPurchaseCreated(payload: PurchaseCreated): void {
-  if (!io) return;
-  io.to("drops").emit("purchase:created", payload);
+  fanout("purchase:created", payload);
 }
 
 export function emitReservationExpired(payload: ReservationExpired): void {
-  if (!io) return;
-  io.to("drops").emit("reservation:expired", payload);
+  fanout("reservation:expired", payload);
 }

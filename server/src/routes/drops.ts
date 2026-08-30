@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { env } from "../config/env";
 import { asyncHandler, requireAdmin, requireAuth } from "../middleware/auth";
-import { mutationLimiter, readLimiter } from "../middleware/rateLimit";
+import { mutationLimiter, readLimiter, reserveLimiter } from "../middleware/rateLimit";
 import { validateBody, validateUuidParam } from "../middleware/validate";
 import { createDropSchema } from "../schemas";
 import { createDrop, listDrops } from "../services/dropService";
@@ -38,7 +38,7 @@ dropsRouter.post(
   "/:id/reserve",
   validateUuidParam("id"),
   requireAuth,
-  mutationLimiter,
+  reserveLimiter,
   asyncHandler(async (req, res) => {
     const result = await reserveDrop(req.params.id, req.user!.id);
     res.status(201).json(result);

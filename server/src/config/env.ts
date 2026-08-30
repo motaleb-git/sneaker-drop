@@ -35,6 +35,21 @@ if (cookieSameSite !== "lax" && cookieSameSite !== "strict" && cookieSameSite !=
   throw new Error("COOKIE_SAMESITE must be lax, strict, or none");
 }
 
+function rateLimitMax(name: string, fallback: number, max: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`${name} must be an integer between 1 and ${max}`);
+  }
+  return value;
+}
+
+const rateLimitWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
+if (!Number.isInteger(rateLimitWindowMs) || rateLimitWindowMs < 1000 || rateLimitWindowMs > 3_600_000) {
+  throw new Error("RATE_LIMIT_WINDOW_MS must be an integer between 1000 and 3600000");
+}
+
 export const env = {
   DATABASE_URL: required(
     "DATABASE_URL",
@@ -50,4 +65,11 @@ export const env = {
   START_EXPIRY_WORKER: (process.env.START_EXPIRY_WORKER ?? "true") === "true",
   COOKIE_SECURE: (process.env.COOKIE_SECURE ?? (isProd ? "true" : "false")) === "true",
   COOKIE_SAMESITE: cookieSameSite as "lax" | "strict" | "none",
+  RATE_LIMIT_WINDOW_MS: rateLimitWindowMs,
+  RATE_LIMIT_AUTH_MAX: rateLimitMax("RATE_LIMIT_AUTH_MAX", 10, 1000),
+  RATE_LIMIT_READ_MAX: rateLimitMax("RATE_LIMIT_READ_MAX", 120, 10_000),
+  RATE_LIMIT_MUTATION_MAX: rateLimitMax("RATE_LIMIT_MUTATION_MAX", 20, 1000),
+  RATE_LIMIT_RESERVE_MAX: rateLimitMax("RATE_LIMIT_RESERVE_MAX", 30, 1000),
+  /** Optional. Live events + drop-list cache across processes. Never used for stock. */
+  REDIS_URL: process.env.REDIS_URL?.trim() || undefined,
 };

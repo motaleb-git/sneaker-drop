@@ -8,6 +8,7 @@ import { sequelize } from "./db/sequelize";
 import { mountSwagger } from "./docs/swagger";
 import { asyncHandler, requireAuth } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
+import { readLimiter } from "./middleware/rateLimit";
 import { requestId } from "./middleware/requestId";
 import { authRouter } from "./routes/auth";
 import { dropsRouter } from "./routes/drops";
@@ -66,6 +67,7 @@ export function createApp() {
   app.use("/api/reservations", reservationsRouter);
   app.get(
     "/api/me/reservations",
+    readLimiter,
     requireAuth,
     asyncHandler(async (req, res) => {
       res.set("Cache-Control", "no-store");

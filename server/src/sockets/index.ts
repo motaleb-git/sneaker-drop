@@ -1,24 +1,13 @@
 import type { Server as HttpServer } from "http";
 import { Server } from "socket.io";
 import { env } from "../config/env";
+import { createSlidingWindow } from "../lib/slidingWindow";
 import { tokenFromCookieHeader } from "../lib/cookies";
 import { verifyToken } from "../middleware/auth";
 import type { ClientToServerEvents, ServerToClientEvents } from "../types/realtime";
 import { setIo } from "./hub";
 
-const connectWindow = new Map<string, number[]>();
-
-function allowConnect(ip: string): boolean {
-  const now = Date.now();
-  const recent = (connectWindow.get(ip) ?? []).filter((t) => now - t < 60_000);
-  if (recent.length >= 40) {
-    connectWindow.set(ip, recent);
-    return false;
-  }
-  recent.push(now);
-  connectWindow.set(ip, recent);
-  return true;
-}
+const allowSocketConnect = createSlidingWindow(40, 60_000);
 
 export function attachSockets(httpServer: HttpServer): Server {
   const origins = env.CLIENT_ORIGIN.split(",").map((s) => s.trim());
@@ -35,7 +24,7 @@ export function attachSockets(httpServer: HttpServer): Server {
 
   io.use((socket, next) => {
     const ip = socket.handshake.address || "unknown";
-    if (!allowConnect(ip)) {
+    if (!allowSocketConnect(ip)) {
       next(new Error("rate limited"));
       return;
     }
